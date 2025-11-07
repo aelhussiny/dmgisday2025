@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Dubai Landmark Locator | Dubai Municipality GIS Day</title>
+
+        <!-- Load Tailwind CSS -->
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        <!-- Load html2canvas for sharing -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+        <!-- Link to external stylesheet -->
+        <link rel="stylesheet" href="style.css" />
+
+        <!-- Load ArcGIS API -->
+        <link
+            rel="stylesheet"
+            href="https://js.arcgis.com/4.29/esri/themes/light/main.css"
+        />
+        <script src="https://js.arcgis.com/4.29/"></script>
+    </head>
+
+    <body class="bg-gray-100">
+        <div id="app-container" class="relative">
+            <!-- The ArcGIS Map View -->
+            <div id="viewDiv"></div>
+
+            <!-- Language Toggle -->
+            <button
+                id="lang-toggle"
+                class="absolute top-4 right-4 z-20 bg-white shadow-lg rounded-full p-3 text-sm font-medium hover:bg-gray-100 transition"
+            >
+                العربية
+            </button>
+
+            <!-- UI Overlay for panels -->
+            <div id="ui-overlay" class="p-4">
+                <!-- Start Panel -->
+                <div
+                    id="start-panel"
+                    class="panel bg-white/80 p-8 rounded-xl shadow-xl max-w-lg w-full text-center flex flex-col items-center"
+                >
+                    <!-- NEW: Logo added on top of instructions -->
+                    <img
+                        id="start-logo"
+                        src="./dmLogo.webp"
+                        alt="Dubai Municipality Logo"
+                        class="w-24 h-auto mb-4"
+                    />
+                    <h1
+                        id="welcome-title"
+                        class="text-3xl font-bold text-gray-800 mb-4"
+                    >
+                        Welcome to the Landmark Locator!
+                    </h1>
+                    <p id="welcome-desc" class="text-gray-600 mb-8">
+                        Test your knowledge of Dubai! We'll show you the name of
+                        a landmark, and you have to click on the map where you
+                        think it is.
+                        <br /><br />
+                        - Find it: <strong>+10 points</strong>
+                        <br />
+                        - Miss: <strong>-1 point</strong> for every 500m you're
+                        off.
+                    </p>
+                    <button
+                        id="start-button"
+                        class="btn btn-primary w-full text-lg"
+                    >
+                        Start Game
+                    </button>
+                </div>
+
+                <!-- Loading Panel -->
+                <div
+                    id="loading-panel"
+                    class="panel hidden bg-white/80 p-8 rounded-xl shadow-xl text-center"
+                >
+                    <h2
+                        id="loading-text"
+                        class="text-2xl font-semibold text-gray-700"
+                    >
+                        Loading Landmarks...
+                    </h2>
+                    <!-- Simple spinner -->
+                    <div
+                        class="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mt-6"
+                    ></div>
+                </div>
+
+                <!-- Game Panel (Prompt) -->
+                <!-- UPDATED: Added image container -->
+                <div
+                    id="game-panel"
+                    class="panel hidden absolute top-4 left-1/2 -translate-x-1/2 bg-white/80 rounded-xl shadow-xl max-w-md w-11/12"
+                >
+                    <!-- Image Container -->
+                    <div
+                        id="landmark-image-container"
+                        class="w-full bg-gray-200 rounded-t-xl flex items-center justify-center"
+                    >
+                        <!-- Loading spinner for image -->
+                        <div
+                            id="image-spinner"
+                            class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 m-16"
+                        ></div>
+                        <!-- The image will be loaded here -->
+                        <img
+                            id="landmark-image"
+                            src=""
+                            alt="Landmark"
+                            class="hidden w-full h-full object-cover rounded-t-xl"
+                        />
+                    </div>
+
+                    <div class="p-4">
+                        <p
+                            id="find-landmark-text"
+                            class="text-center text-gray-600"
+                        >
+                            Find this landmark:
+                        </p>
+                        <h2
+                            id="landmark-name"
+                            class="text-center text-2xl font-bold text-blue-700"
+                        ></h2>
+                        <div class="mt-4 flex justify-between items-center">
+                            <span
+                                id="score-display"
+                                class="text-lg font-semibold text-gray-800"
+                                >Score: 0</span
+                            >
+                            <span
+                                id="round-display"
+                                class="text-sm font-medium text-gray-500"
+                                >Round 1 / 10</span
+                            >
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Confirm Panel (Appears on click) -->
+                <div
+                    id="confirm-panel"
+                    class="panel hidden absolute bottom-10 left-1/2 -translate-x-1/2"
+                >
+                    <button
+                        id="confirm-button"
+                        class="btn btn-confirm text-xl shadow-2xl"
+                    >
+                        Confirm Guess
+                    </button>
+                </div>
+
+                <!-- Round Result Panel -->
+                <div
+                    id="round-result-panel"
+                    class="panel hidden bg-white/80 p-8 rounded-xl shadow-xl max-w-lg w-full text-center"
+                >
+                    <h2
+                        id="round-result-title"
+                        class="text-4xl font-bold mb-4"
+                    ></h2>
+                    <p
+                        id="round-result-message"
+                        class="text-lg text-gray-700 mb-6"
+                    ></p>
+                    <button
+                        id="next-button"
+                        class="btn btn-primary w-full text-lg"
+                    >
+                        Next Landmark
+                    </button>
+                </div>
+
+                <!-- Game Over Panel -->
+                <div
+                    id="game-over-panel"
+                    class="panel hidden bg-white/80 p-8 rounded-xl shadow-xl max-w-lg w-full text-center"
+                >
+                    <h1
+                        id="game-over-title"
+                        class="text-3xl font-bold text-gray-800 mb-4"
+                    >
+                        Game Over!
+                    </h1>
+                    <p id="final-score-text" class="text-xl text-gray-600 mb-6">
+                        Here are your results:
+                    </p>
+                    <div class="space-y-4 mb-8">
+                        <div class="bg-blue-100 p-4 rounded-lg">
+                            <span
+                                id="total-score-label"
+                                class="block text-sm text-blue-700 font-medium"
+                                >Total Score</span
+                            >
+                            <span
+                                id="total-score"
+                                class="block text-4xl font-bold text-blue-800"
+                                >0</span
+                            >
+                        </div>
+                        <div class="bg-green-100 p-4 rounded-lg">
+                            <span
+                                id="accuracy-label"
+                                class="block text-sm text-green-700 font-medium"
+                                >Accuracy</span
+                            >
+                            <span
+                                id="accuracy"
+                                class="block text-4xl font-bold text-green-800"
+                                >0%</span
+                            >
+                        </div>
+                    </div>
+                    <div class="flex gap-4">
+                        <button
+                            id="play-again-button"
+                            class="btn btn-secondary w-1/2 text-lg"
+                        >
+                            Play Again
+                        </button>
+                        <button
+                            id="share-button"
+                            class="btn btn-primary w-1/2 text-lg"
+                        >
+                            Share Results
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Share Modal (for fallback) -->
+            <div
+                id="share-modal"
+                class="hidden fixed inset-0 bg-black/50 z-30 flex items-center justify-center p-4"
+            >
+                <div
+                    class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full relative"
+                >
+                    <button
+                        id="close-modal-button"
+                        class="absolute top-2 right-3 text-3xl text-gray-500 hover:text-gray-800"
+                    >
+                        &times;
+                    </button>
+                    <h3
+                        id="share-modal-title"
+                        class="text-xl font-semibold mb-4"
+                    >
+                        Share Your Results!
+                    </h3>
+                    <p id="share-modal-desc" class="text-gray-600 mb-4">
+                        Right-click or long-press the image to save and share
+                        it.
+                    </p>
+                    <img
+                        id="share-image-preview"
+                        src=""
+                        alt="Results"
+                        class="w-full border rounded-lg"
+                    />
+                </div>
+            </div>
+
+            <!-- Hidden card for generating share image -->
+            <div
+                id="share-card"
+                class="hidden w-[400px] bg-white p-6 border-4 border-blue-600"
+            >
+                <div class="flex justify-between items-center mb-4">
+                    <h3
+                        id="share-card-title"
+                        class="text-xl font-bold text-gray-800"
+                    >
+                        My Landmark Score!
+                    </h3>
+                    <!-- UPDATED: Replaced SVG with your img -->
+                    <img
+                        id="share-logo"
+                        src="./dmLogo.webp"
+                        alt="Dubai Municipality Logo"
+                        class="w-24 h-auto"
+                    />
+                </div>
+                <div class="mt-4 text-center">
+                    <div class="bg-blue-100 p-3 rounded-lg mb-3">
+                        <span
+                            id="share-card-score-label"
+                            class="block text-sm text-blue-700 font-medium"
+                            >Total Score</span
+                        >
+                        <span
+                            id="share-card-score"
+                            class="block text-3xl font-bold text-blue-800"
+                            >0</span
+                        >
+                    </div>
+                    <div class="bg-green-100 p-3 rounded-lg">
+                        <span
+                            id="share-card-accuracy-label"
+                            class="block text-sm text-green-700 font-medium"
+                            >Accuracy</span
+                        >
+                        <span
+                            id="share-card-accuracy"
+                            class="block text-3xl font-bold text-green-800"
+                            >0%</span
+                        >
+                    </div>
+                    <p class="text-xs text-gray-500 mt-4">
+                        Dubai Municipality GIS Day
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Link to external script -->
+        <script src="script.js"></script>
+    </body>
+</html>
