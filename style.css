@@ -32,7 +32,7 @@ body,
     z-index: 10;
     pointer-events: none; /* Allow map clicks by default */
     display: flex;
-    align-items: flex-end;
+    align-items: flex-end; /* Aligns panels to the bottom */
     justify-content: center;
 }
 
@@ -116,5 +116,11 @@ body,
         right: 1rem !important; /* Add 'right-4' */
         width: auto !important; /* Override 'w-full' to use left/right */
         transform: none !important; /* Override 'translate-x-1/2' */
+    }
+
+    /* --- NEW: Stack game over buttons on mobile --- */
+    /* Target the grid inside the game-over-panel */
+    #game-over-panel .grid {
+        grid-template-columns: 1fr !important; /* Force 1 column */
     }
 }

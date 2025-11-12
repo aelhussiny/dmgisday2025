@@ -1,6 +1,3 @@
-// --- UPDATED ---
-// Wrap the entire require call in a setTimeout to prevent 'multipleDefine' error
-// by ensuring all other scripts have loaded and registered themselves first.
 setTimeout(() => {
     require([
         "esri/Map",
@@ -9,9 +6,29 @@ setTimeout(() => {
         "esri/layers/GraphicsLayer",
         "esri/Graphic",
         "esri/geometry/geometryEngine",
-        // "esri/core/promiseUtils" // <-- REMOVED
-    ], (Map, WebMap, MapView, GraphicsLayer, Graphic, geometryEngine) => {
-        // <-- REMOVED promiseUtils
+        "esri/request",
+    ], (
+        Map,
+        WebMap,
+        MapView,
+        GraphicsLayer,
+        Graphic,
+        geometryEngine,
+        esriRequest,
+    ) => {
+        const CONFIG = {
+            // URL of your Survey123 form
+            SURVEY123_SUBMIT_URL:
+                "https://survey123.arcgis.com/share/89f3d95b47b24a488f9b76af8e38c948",
+            SURVEY123_DATA_API_URL:
+                "https://services1.arcgis.com/zu8dBGfmKCvrZHh2/arcgis/rest/services/DM_GIS_Day_Game_Leaderboard_Public_View/FeatureServer/0/query",
+            
+            LEADERBOARD_FIRST_NAME_FIELD: "first_name", // The field for the user's first name
+            LEADERBOARD_LAST_NAME_FIELD: "last_name", // The field for the user's last name
+            LEADERBOARD_SCORE_FIELD: "score", // The field for the score
+
+            LEADERBOARD_SUBMIT_SCORE_FIELD_ID: "field:score",
+        };
 
         // --- DOM Elements ---
         const $ = (id) => document.getElementById(id);
@@ -23,6 +40,10 @@ setTimeout(() => {
             roundResult: $("round-result-panel"),
             gameOver: $("game-over-panel"),
             shareModal: $("share-modal"),
+            submitModal: $("submit-modal"),
+            leaderboardModal: $("leaderboard-modal"),
+            leaderboardLoading: $("leaderboard-loading"),
+            leaderboardList: $("leaderboard-list"),
         };
         const buttons = {
             langToggle: $("lang-toggle"),
@@ -32,8 +53,12 @@ setTimeout(() => {
             playAgain: $("play-again-button"),
             share: $("share-button"),
             closeModal: $("close-modal-button"),
+            submitScore: $("submit-score-button"),
+            viewLeaderboard: $("view-leaderboard-button"),
+            closeSubmitModal: $("close-submit-modal-button"),
+            closeLeaderboardModal: $("close-leaderboard-modal-button"),
         };
-        // --- NEW: Image elements ---
+
         const imageElements = {
             container: $("landmark-image-container"),
             image: $("landmark-image"),
@@ -75,9 +100,15 @@ setTimeout(() => {
                     "Right-click or long-press the image to save and share it.",
                 webMapError: "Could not load the web map. Please check the ID.",
                 layerError:
-                    "Could not find the 'Dubai Landmarks' layer in the web map.", // <-- FIXED TYPO
+                    "Could not find the 'Dubai Landmarks' layer in the web map.",
+                submitScoreButton: "Submit Score",
+                viewLeaderboardButton: "Leaderboard",
+                submitModalTitle: "Submit Your Score",
+                leaderboardModalTitle: "Top Scorers",
+                leaderboardLoadingText: "Loading leaderboard...",
+                leaderboardError: "Could not load leaderboard data. Please try again later.",
+                points: "points"
             },
-            // --- ADDED ARABIC TRANSLATIONS (from previous merge) ---
             ar: {
                 langToggle: "English",
                 welcomeTitle: "أهلاً بك في لعبة تحديد المواقع!",
@@ -111,7 +142,14 @@ setTimeout(() => {
                 webMapError:
                     "لم نتمكن من تحميل الخريطة. يرجى التحقق من المعرف.",
                 layerError:
-                    "لم نتمكن من العثور على طبقة 'Dubai Landmarks' في الخريطة.", // <-- FIXED TYPO
+                    "لم نتمكن من العثور على طبقة 'Dubai Landmarks' في الخريطة.",
+                submitScoreButton: "إرسال النتيجة",
+                viewLeaderboardButton: "قائمة المتصدرين",
+                submitModalTitle: "إرسال نتيجتك",
+                leaderboardModalTitle: "أعلى النتائج",
+                leaderboardLoadingText: "جاري تحميل قائمة المتصدرين...",
+                leaderboardError: "لا يمكن تحميل قائمة المتصدرين. يرى المحاولة لاحقاً.",
+                points: "نقاط"
             },
         };
 
@@ -144,7 +182,7 @@ setTimeout(() => {
             outline: {
                 color: "white",
                 width: 2,
-            }, // <-- SYNTAX FIX: Added closing brace
+            },
         };
 
         const incorrectSymbol = {
@@ -153,7 +191,7 @@ setTimeout(() => {
             outline: {
                 color: "white",
                 width: 2,
-            }, // <-- SYNTAX FIX: Added closing brace
+            },
         };
 
         // --- Helper Functions ---
@@ -222,10 +260,19 @@ setTimeout(() => {
             $("accuracy-label").innerText = t("accuracyLabel");
             buttons.playAgain.innerText = t("playAgainButton");
             buttons.share.innerText = t("shareButton");
+            buttons.submitScore.innerText = t("submitScoreButton");
+            buttons.viewLeaderboard.innerText = t("viewLeaderboardButton");
+
 
             // Share Modal
             $("share-modal-title").innerText = t("shareModalTitle");
             $("share-modal-desc").innerText = t("shareModalDesc");
+            
+            
+            $("submit-modal-title").innerText = t("submitModalTitle");
+            $("leaderboard-modal-title").innerText = t("leaderboardModalTitle");
+            $("leaderboard-loading-text").innerText = t("leaderboardLoadingText");
+
 
             // Share Card (Hidden)
             $("share-card-title").innerText = t("shareCardTitle");
@@ -294,8 +341,6 @@ setTimeout(() => {
         /**
          * Convert data URL to File object (for Web Share API)
          */
-        // --- UPDATED FUNCTION ---
-        // Removed promiseUtils.create wrapper. This now returns a native Promise.
         function dataURLtoFile(dataUrl, filename) {
             return fetch(dataUrl)
                 .then((res) => res.blob())
@@ -331,7 +376,7 @@ setTimeout(() => {
                                 "Could not find layer 'Dubai Landmarks'"
                             );
                             alert(t("layerError"));
-                            return Promise.reject(new Error(t("layerError"))); // <-- Use native Promise.reject
+                            return Promise.reject(new Error(t("layerError")));
                         }
 
                         // Hide the layer
@@ -347,28 +392,19 @@ setTimeout(() => {
                         graphicsLayer = new GraphicsLayer();
                         webmap.add(graphicsLayer);
 
-                        // --- UPDATED ---
-                        // Use native Promise.all
                         return Promise.all([view.when(), loadGameData()]);
                     })
-                    // --- SYNTAX ERROR FIX: REMOVED ERRONEOUS .then() BLOCK ---
                     .then(([viewResponse, gameDataResponse]) => {
-                        // --- UPDATED ---
-                        // Directly access results from Promise.all
-
-                        // This block runs after *both* promises fulfill
                         console.log("Map view ready and game data loaded.");
                         gameState = "START";
                         updateUI();
                     })
                     .catch((error) => {
-                        // This single .catch handles all errors in the chain
                         console.error("Error during initialization:", error);
                         alert(t("webMapError"));
                         panels.loading.classList.remove("hidden");
                     });
             } catch (error) {
-                // This catch is for immediate sync errors
                 console.error("Error initializing webmap:", error);
                 alert(t("webMapError"));
                 panels.loading.classList.remove("hidden");
@@ -378,39 +414,32 @@ setTimeout(() => {
         /**
          * Query all features from the landmarks layer
          */
-        // --- UPDATED TO FETCH ATTACHMENTS ---
         function loadGameData() {
             try {
                 const query = landmarksLayer.createQuery();
                 query.where = "1=1"; // Get all features
-                // --- UPDATED: Use top-level objectId instead of attribute ---
-                query.outFields = ["name", "name_ar", "OBJECTID"]; // Keep OBJECTID for the map key
+                query.outFields = ["name", "name_ar", "OBJECTID"];
                 query.returnGeometry = true;
 
-                // queryFeatures returns a Dojo promise
                 return landmarksLayer
                     .queryFeatures(query)
                     .then((featureSet) => {
                         allLandmarks = shuffleArray(featureSet.features);
 
-                        // Now, create an array of promises to fetch attachments for each landmark
                         const attachmentPromises = allLandmarks.map(
                             (feature) => {
-                                // queryAttachments returns a Dojo promise
                                 return landmarksLayer
                                     .queryAttachments({
                                         objectIds: [
                                             feature.attributes.OBJECTID,
-                                        ], // Use the objectId from attributes
+                                        ],
                                     })
                                     .then((attachmentMap) => {
-                                        // --- UPDATED: Correctly parse the attachmentMap object ---
                                         const objectId =
                                             feature.attributes.OBJECTID;
                                         const attachments =
-                                            attachmentMap[objectId]; // Get the array of attachments for this feature
+                                            attachmentMap[objectId];
 
-                                        // Save the URL of the first attachment (if it exists)
                                         if (
                                             attachments &&
                                             attachments.length > 0
@@ -418,25 +447,20 @@ setTimeout(() => {
                                             feature.attributes.imageUrl =
                                                 attachments[0].url;
                                         } else {
-                                            feature.attributes.imageUrl = null; // Handle landmarks with no image
+                                            feature.attributes.imageUrl = null;
                                         }
-                                        return feature; // Return the modified feature
+                                        return feature;
                                     });
                             }
                         );
-
-                        // Wait for all attachment queries to complete
-                        // Convert Dojo promise array to native Promise.all
                         return Promise.all(attachmentPromises);
                     })
                     .then((landmarksWithImages) => {
-                        // allLandmarks now contains features with the 'imageUrl' attribute
                         allLandmarks = landmarksWithImages;
                         console.log(
                             "Landmarks and images loaded:",
                             allLandmarks
                         );
-                        // Let init() handle the UI update once everything is ready
                     })
                     .catch((error) => {
                         console.error(
@@ -444,12 +468,12 @@ setTimeout(() => {
                             error
                         );
                         alert("Could not load landmark data.");
-                        return Promise.reject(error); // <-- Use native Promise.reject
+                        return Promise.reject(error);
                     });
             } catch (error) {
                 console.error("Error creating query:", error);
                 alert("Could not load landmark data.");
-                return Promise.reject(error); // <-- Use native Promise.reject
+                return Promise.reject(error);
             }
         }
 
@@ -473,7 +497,6 @@ setTimeout(() => {
         /**
          * Start a new round
          */
-        // --- UPDATED TO SHOW IMAGE ---
         function startRound() {
             clickedPoint = null;
             graphicsLayer.removeAll();
@@ -495,16 +518,13 @@ setTimeout(() => {
 
                 imageElements.image.src = imageUrl;
                 imageElements.image.onload = () => {
-                    // Once loaded, show image and hide spinner
                     imageElements.image.classList.remove("hidden");
                     imageElements.spinner.classList.add("hidden");
                 };
                 imageElements.image.onerror = () => {
-                    // If image fails to load, hide container
                     imageElements.container.classList.add("hidden");
                 };
             } else {
-                // No image for this landmark
                 imageElements.container.classList.add("hidden");
             }
 
@@ -520,18 +540,12 @@ setTimeout(() => {
          */
         function handleMapClick(event) {
             clickedPoint = event.mapPoint;
-
-            // Clear previous click graphic
             graphicsLayer.removeAll();
-
-            // Add new click graphic
             const clickGraphic = new Graphic({
                 geometry: clickedPoint,
                 symbol: clickSymbol,
             });
             graphicsLayer.add(clickGraphic);
-
-            // Show confirm button
             updateUI();
         }
 
@@ -541,7 +555,6 @@ setTimeout(() => {
         function confirmGuess() {
             if (!clickedPoint) return;
 
-            // Disable map click
             if (mapClickHandler) {
                 mapClickHandler.remove();
                 mapClickHandler = null;
@@ -550,7 +563,6 @@ setTimeout(() => {
             const targetLandmark = allLandmarks[currentLandmarkIndex];
             const targetPolygon = targetLandmark.geometry;
 
-            // Use the 'geometryEngine' module variable
             const isInside = geometryEngine.contains(
                 targetPolygon,
                 clickedPoint
@@ -561,7 +573,6 @@ setTimeout(() => {
             let resultMessage = "";
             let resultSymbol;
 
-            // --- SCORING LOGIC FROM PREVIOUS VERSION ---
             if (isInside) {
                 roundScore = 10;
                 resultTitle = t("correctTitle");
@@ -569,23 +580,19 @@ setTimeout(() => {
                 resultSymbol = correctSymbol;
                 accuracyTracker.push(1);
             } else {
-                // Use the 'geometryEngine' module variable
                 const distanceInMeters = geometryEngine.distance(
                     targetPolygon,
                     clickedPoint,
                     "meters"
                 );
 
-                // --- UPDATED: Per user's new logic ---
-                // Use parseInt to mimic int()
                 const penalty = parseInt(distanceInMeters / 500, 10);
-                roundScore = Math.max(0, 10 - penalty); // Score is 10 minus penalty, with a minimum of 0
-                // --- END UPDATE ---
+                roundScore = Math.max(0, 10 - penalty);
 
                 resultTitle = t("incorrectTitle");
                 resultMessage = t("incorrectMessage", {
                     distance: Math.round(distanceInMeters),
-                    roundScore: roundScore, // Pass roundScore to the message
+                    roundScore: roundScore,
                 });
                 resultSymbol = incorrectSymbol;
                 accuracyTracker.push(0);
@@ -593,21 +600,18 @@ setTimeout(() => {
 
             totalScore += roundScore;
 
-            // Update result panel text
             $("round-result-title").innerText = resultTitle;
             $("round-result-message").innerHTML = resultMessage;
             $("round-result-title").style.color = isInside
                 ? "#16a34a"
-                : "#dc2626"; // green-600 or red-600
+                : "#dc2626";
 
-            // Show the correct polygon
             const resultGraphic = new Graphic({
                 geometry: targetPolygon,
                 symbol: resultSymbol,
             });
             graphicsLayer.add(resultGraphic);
 
-            // Zoom to the result
             view.goTo({
                 target: targetPolygon.extent.expand(1.5),
             });
@@ -621,33 +625,27 @@ setTimeout(() => {
          */
         function nextRound() {
             currentLandmarkIndex++;
-
             if (currentLandmarkIndex < allLandmarks.length) {
                 startRound();
             } else {
-                // Game Over
                 endGame();
             }
         }
 
         function endGame() {
             gameState = "GAME_OVER";
-            updateUI(); // <-- MOVED UP: Show the panel first
+            updateUI(); 
 
             const accuracy =
                 (accuracyTracker.filter((a) => a === 1).length /
                     allLandmarks.length) *
                 100;
 
-            // Now that the panel is visible, these elements exist
             $("total-score").innerText = totalScore;
             $("accuracy").innerText = `${Math.round(accuracy)}%`;
 
-            // Pre-fill the hidden share card
             $("share-card-score").innerText = totalScore;
             $("share-card-accuracy").innerText = `${Math.round(accuracy)}%`;
-
-            // updateUI(); // <-- REMOVED FROM HERE
         }
 
         /**
@@ -656,58 +654,42 @@ setTimeout(() => {
         function shareResults() {
             const shareCard = $("share-card");
 
-            // Temporarily make it visible but off-screen to render
             shareCard.classList.remove("hidden");
             shareCard.style.position = "absolute";
             shareCard.style.left = "-9999px";
 
-            // Add a small delay to ensure the element is in the DOM
             setTimeout(() => {
-                // --- UPDATED ---
-                // html2canvas returns a native promise.
-                html2canvas(shareCard, { scale: 2 })
+                html2canvas(shareCard, { scale: 2, useCORS: true })
                     .then((canvas) => {
-                        const dataUrl = canvas.toDataURL("image/png");
-                        // dataURLtoFile now returns a native promise
+                        const dataUrl = canvas.toDataURL("image/webp", 0.9);
                         return dataURLtoFile(
                             dataUrl,
-                            "landmark_results.png"
-                        ).then((file) => ({ dataUrl, file })); // Pass both dataUrl and file
+                            "landmark_results.webp"
+                        ).then((file) => ({ dataUrl, file }));
                     })
                     .then(({ dataUrl, file }) => {
-                        // Hide the card again
                         hideShareCard();
-
-                        // Use Web Share API if available
                         if (
                             navigator.share &&
                             navigator.canShare({ files: [file] })
                         ) {
-                            // navigator.share returns a native promise
                             return navigator.share({
                                 title: t("shareCardTitle"),
                                 text: `I scored ${totalScore} points in the Dubai Landmark Locator game!`,
                                 files: [file],
                             });
                         } else {
-                            // Fallback to modal
                             $("share-image-preview").src = dataUrl;
                             panels.shareModal.classList.remove("hidden");
                         }
                     })
                     .catch((error) => {
                         console.error("Error sharing:", error);
-
-                        // Attempt to fallback to modal even if sharing fails
-                        // We must hide the card *before* running html2canvas again
                         hideShareCard();
-
-                        // --- UPDATED ---
-                        // Re-run html2canvas for the fallback (returns native promise)
-                        html2canvas($("share-card"), { scale: 2 })
+                        html2canvas($("share-card"), { scale: 2, useCORS: true })
                             .then((canvas) => {
                                 $("share-image-preview").src =
-                                    canvas.toDataURL("image/png");
+                                    canvas.toDataURL("image/webp", 0.9);
                                 panels.shareModal.classList.remove("hidden");
                             })
                             .catch((e) => {
@@ -715,11 +697,10 @@ setTimeout(() => {
                                     "Error generating fallback share image:",
                                     e
                                 );
-                                // As a last resort, just hide the card
                                 hideShareCard();
                             });
                     });
-            }, 100); // 100ms delay
+            }, 100);
         }
 
         // Helper to hide the share card
@@ -729,6 +710,93 @@ setTimeout(() => {
             shareCard.style.position = "";
             shareCard.style.left = "";
         }
+
+        /**
+         * Opens the Survey123 modal with the score pre-filled
+         */
+        function showSubmitModal() {
+            // --- UPDATED: Add lang parameter ---
+            let url = `${CONFIG.SURVEY123_SUBMIT_URL}?${CONFIG.LEADERBOARD_SUBMIT_SCORE_FIELD_ID}=${totalScore}&hide=navbar,header,description,footer,${CONFIG.LEADERBOARD_SUBMIT_SCORE_FIELD_ID}`;
+            if (currentLanguage === 'ar') {
+                url += "&lang=ar";
+            }
+            $("survey-iframe").src = url;
+            panels.submitModal.classList.remove("hidden");
+        }
+
+        /**
+         * Opens the leaderboard modal and fetches data
+         */
+        function showLeaderboard() {
+            panels.leaderboardModal.classList.remove("hidden");
+            panels.leaderboardLoading.classList.remove("hidden");
+            panels.leaderboardList.classList.add("hidden");
+            panels.leaderboardList.innerHTML = ""; // Clear old results
+            
+            fetchLeaderboardData();
+        }
+
+        /**
+         * Fetches and displays the top 10 scores
+         */
+        function fetchLeaderboardData() {
+            // --- UPDATED: Use new name fields ---
+            const queryParams = {
+                f: "json",
+                where: "1=1",
+                outFields: `${CONFIG.LEADERBOARD_FIRST_NAME_FIELD},${CONFIG.LEADERBOARD_LAST_NAME_FIELD},${CONFIG.LEADERBOARD_SCORE_FIELD}`,
+                orderByFields: `${CONFIG.LEADERBOARD_SCORE_FIELD} DESC`,
+                resultRecordCount: 10,
+            };
+
+            esriRequest(CONFIG.SURVEY123_DATA_API_URL, {
+                query: queryParams,
+                responseType: "json",
+            })
+                .then((response) => {
+                    const features = response.data.features;
+                    populateLeaderboard(features);
+                })
+                .catch((error) => {
+                    console.error("Error fetching leaderboard:", error);
+                    panels.leaderboardLoading.classList.add("hidden");
+                    panels.leaderboardList.classList.remove("hidden");
+                    panels.leaderboardList.innerHTML = `<li class="text-red-600">${t("leaderboardError")}</li>`;
+                });
+        }
+
+        /**
+         * Populates the leaderboard list with data
+         */
+        function populateLeaderboard(features) {
+            panels.leaderboardLoading.classList.add("hidden");
+            panels.leaderboardList.classList.remove("hidden");
+            
+            if (!features || features.length === 0) {
+                 panels.leaderboardList.innerHTML = `<li>No scores submitted yet.</li>`; // Or a translation
+                 return;
+            }
+
+            features.forEach((feature, index) => {
+                // --- UPDATED: Combine first and last name ---
+                const firstName = feature.attributes[CONFIG.LEADERBOARD_FIRST_NAME_FIELD] || "";
+                const lastName = feature.attributes[CONFIG.LEADERBOARD_LAST_NAME_FIELD] || "";
+                let name = `${firstName} ${lastName}`.trim();
+                if (!name) {
+                    name = "Anonymous";
+                }
+                const score = feature.attributes[CONFIG.LEADERBOARD_SCORE_FIELD] || 0;
+                
+                const li = document.createElement("li");
+                li.className = "p-3 bg-gray-100 rounded-lg";
+                li.innerHTML = `
+                    <span class="font-bold text-lg text-blue-700">${index + 1}. ${name}</span>
+                    <span class="float-right font-semibold text-lg">${score} ${t('points')}</span>
+                `; // Note: Using simple 'points' translation
+                panels.leaderboardList.appendChild(li);
+            });
+        }
+
 
         // --- Event Listeners ---
         buttons.langToggle.addEventListener("click", toggleLanguage);
@@ -741,8 +809,36 @@ setTimeout(() => {
             panels.shareModal.classList.add("hidden");
         });
 
+        buttons.submitScore.addEventListener("click", showSubmitModal);
+        buttons.viewLeaderboard.addEventListener("click", showLeaderboard);
+        buttons.closeSubmitModal.addEventListener("click", () => {
+            panels.submitModal.classList.add("hidden");
+            $("survey-iframe").src = ""; // Clear src to stop survey
+        });
+        buttons.closeLeaderboardModal.addEventListener("click", () => {
+            panels.leaderboardModal.classList.add("hidden");
+        });
+
+
         // Start the application
         init();
         updateUI(); // Show loading screen initially
+
+        // --- NEW: Testing Hack ---
+        // Open dev console (F12) and type skipToResults() to test
+        window.skipToResults = () => {
+            console.log("HACK: Skipping to results with random score...");
+            if (allLandmarks.length === 0) {
+                 // Mock data if landmarks haven't loaded
+                 allLandmarks = new Array(5).fill(1);
+                 console.log("Mocking 5 landmarks for test.");
+            }
+            totalScore = Math.floor(Math.random() * (allLandmarks.length * 8)) + 10; // Random score
+            accuracyTracker = allLandmarks.map(() => Math.random() > 0.5 ? 1 : 0);
+            
+            endGame(); // This will set gameState = "GAME_OVER" and update UI
+        };
+        // --- END HACK ---
+
     });
 }, 0); // <-- Run after a 0ms delay
